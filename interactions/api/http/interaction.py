@@ -1,10 +1,12 @@
 from typing import List, Optional, Union
 
+from aiohttp import MultipartWriter
+
+from ...api.models.misc import File
 from ...api.cache import Cache
 from ..models import Snowflake
 from .request import _Request
 from .route import Route
-
 
 class _InteractionRequest:
 
@@ -213,7 +215,7 @@ class _InteractionRequest:
         )
 
     async def create_interaction_response(
-        self, token: str, application_id: int, data: dict
+        self, token: str, application_id: int, data: dict, files: List[File]
     ) -> None:
         """
         Posts initial response to an interaction, but you need to add the token.
@@ -222,8 +224,25 @@ class _InteractionRequest:
         :param application_id: Application ID snowflake
         :param data: The data to send.
         """
+
+        file_data = None
+        if files and len(files) > 0:
+
+            file_data = MultipartWriter("form-data")
+            part = file_data.append_json(data)
+            part.set_content_disposition("form-data", name="payload_json")
+            data = None
+
+            for id, file in enumerate(files):
+                part = file_data.append(
+                    file._fp,
+                )
+                part.set_content_disposition(
+                    "form-data", name="files[" + str(id) + "]", filename=file._filename
+                )
+
         return await self._req.request(
-            Route("POST", f"/interactions/{application_id}/{token}/callback"), json=data
+            Route("POST", f"/interactions/{application_id}/{token}/callback"), json=data, data=file_data
         )
 
     # This is still Interactions, but this also applies to webhooks

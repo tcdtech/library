@@ -6,7 +6,7 @@ from ..api.models.channel import Channel
 from ..api.models.guild import Guild
 from ..api.models.member import Member
 from ..api.models.message import Embed, Message, MessageInteraction, MessageReference
-from ..api.models.misc import MISSING, DictSerializerMixin, Snowflake
+from ..api.models.misc import MISSING, DictSerializerMixin, Snowflake, File
 from ..api.models.user import User
 from ..base import get_logger
 from .enums import InteractionCallbackType, InteractionType
@@ -123,7 +123,7 @@ class _Context(DictSerializerMixin):
         content: Optional[str] = MISSING,
         *,
         tts: Optional[bool] = MISSING,
-        # attachments: Optional[List[Any]] = None,  # TODO: post-v4: Replace with own file type.
+        files: Optional[List[File]] = None,
         embeds: Optional[Union[Embed, List[Embed]]] = MISSING,
         allowed_mentions: Optional[MessageInteraction] = MISSING,
         components: Optional[
@@ -193,14 +193,22 @@ class _Context(DictSerializerMixin):
         else:
             _components = []
 
+        if not files or files is MISSING:
+            _files = []
+        elif isinstance(files, list):
+            _files = [file._json_payload(id) for id, file in enumerate(files)]
+        else:
+            _files = [files._json_payload(0)]
+            files = [files]
+
         _ephemeral: int = (1 << 6) if ephemeral else 0
 
         # TODO: post-v4: Add attachments into Message obj.
         payload: Message = Message(
             content=_content,
             tts=_tts,
-            # file=file,
-            # attachments=_attachments,
+            #files=file,
+            attachments=_files,
             embeds=_embeds,
             allowed_mentions=_allowed_mentions,
             components=_components,
@@ -208,7 +216,7 @@ class _Context(DictSerializerMixin):
         )
         self.message = payload
         self.message._client = self.client
-        return payload
+        return payload, files
 
     async def edit(
         self,
@@ -442,7 +450,7 @@ class CommandContext(_Context):
         )
 
     async def send(self, content: Optional[str] = MISSING, **kwargs) -> Message:
-        payload = await super().send(content, **kwargs)
+        payload, files = await super().send(content, **kwargs)
 
         if not self.deferred:
             self.callback = InteractionCallbackType.CHANNEL_MESSAGE_WITH_SOURCE
@@ -470,6 +478,7 @@ class CommandContext(_Context):
                 token=self.token,
                 application_id=int(self.id),
                 data=_payload,
+                files=files
             )
             __newdata = await self.client.edit_interaction_response(
                 data={},
@@ -618,7 +627,7 @@ class ComponentContext(_Context):
         return payload
 
     async def send(self, content: Optional[str] = MISSING, **kwargs) -> Message:
-        payload = await super().send(content, **kwargs)
+        payload, files = await super().send(content, **kwargs)
 
         if not self.deferred:
             self.callback = InteractionCallbackType.CHANNEL_MESSAGE_WITH_SOURCE
@@ -651,6 +660,7 @@ class ComponentContext(_Context):
                 token=self.token,
                 application_id=int(self.id),
                 data=_payload,
+                files=files
             )
             __newdata = await self.client.edit_interaction_response(
                 data={},
